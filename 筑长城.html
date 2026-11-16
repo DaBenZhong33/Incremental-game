@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>筑长城</title>
+<style>
+:root{--bg:#efe4cb;--panel:#f8f1de;--ink:#2b2622;--mute:#7a6d5a;--red:#b8372b;--line:#cdbd98;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme=light]){--bg:#1d1a16;--panel:#27231d;--ink:#eadfc8;--mute:#a39679;--red:#e0584a;--line:#443d31;color-scheme:dark}}
+:root[data-theme=dark]{--bg:#1d1a16;--panel:#27231d;--ink:#eadfc8;--mute:#a39679;--red:#e0584a;--line:#443d31;color-scheme:dark}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 "Songti SC","Noto Serif SC","STSong","SimSun",serif}
+#app{max-width:1000px;margin:0 auto;padding:10px}
+h1{font-size:24px;margin:2px 0 6px;letter-spacing:.3em;color:var(--red)}
+#hud{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:14px}
+#bar{height:6px;background:var(--line);border-radius:3px;margin:6px 0;overflow:hidden}
+#bar i{display:block;height:100%;width:0;background:var(--red)}
+.wrap{position:relative}
+canvas{width:100%;display:block;border:1px solid var(--line);border-radius:6px;touch-action:none;background:#e6d5ab}
+#toast{position:absolute;left:50%;top:10px;transform:translateX(-50%);background:rgba(43,38,34,.85);color:#f5ead0;padding:4px 14px;border-radius:4px;font-size:14px;opacity:0;transition:opacity .3s;pointer-events:none;white-space:nowrap}
+#toast.on{opacity:1}
+#tools{display:flex;gap:6px;margin:6px 0}
+button{font:inherit;color:var(--ink);background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:6px 10px;cursor:pointer}
+button:focus-visible{outline:2px solid var(--red);outline-offset:1px}
+button:disabled{opacity:.45;cursor:default}
+#shop{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:6px}
+#shop button{text-align:left;display:flex;flex-direction:column;gap:1px}
+#shop small{color:var(--mute);font-size:12px;line-height:1.35}
+#shop em{font-style:normal;color:var(--red);font-weight:bold}
+#ctrl{display:none;gap:8px;margin:8px 0}
+#ctrl button{flex:1;font-size:22px;padding:14px 0;user-select:none;-webkit-user-select:none}
+@media (pointer:coarse){#ctrl{display:flex}}
+#hint{color:var(--mute);font-size:13px;margin:6px 0}
+#win{position:absolute;inset:0;display:none;align-items:center;justify-content:center;flex-direction:column;gap:8px;background:rgba(30,22,14,.78);color:#f5ead0;border-radius:6px;text-align:center}
+#win h2{font-size:30px;letter-spacing:.2em;margin:0}
+</style></head><body><div id="app">
+<h1>筑长城</h1>
+<div id="hud"><span>土 <b id="hE"></b></span><span>窑口砖 <b id="hB"></b></span><span>前线砖堆 <b id="hD"></b></span><span>背负 <b id="hC"></b></span><span>工分 <b id="hP"></b></span><span>工艺 <b id="hQ"></b></span><span>烽火台 <b id="hT"></b></span><span>用时 <b id="hM"></b></span></div>
+<div id="bar"><i id="barI"></i></div>
+<div class="wrap"><canvas id="c"></canvas><div id="toast"></div>
+<div id="win"><h2>狼烟四起，长城告成</h2><div id="winS"></div><button id="again">再修一次</button></div></div>
+<div id="ctrl"><button data-k="L">◀</button><button data-k="R">▶</button><button data-k="A">砌 / 挖</button></div>
+<div id="tools"><button id="mute">音效：开</button><button id="spd">速度 ×1</button></div>
+<div id="hint">← → 或 A D 移动。在土坑旁按住 空格 / E 挖土，在前线按住 空格 / E 砌墙。窑口的砖走近自动背起，到前线自动卸下。砖随工艺增值：晒干的土坯 → 研磨 → 窑烧青砖。工分可用来雇人、铺传送带、买设备。</div>
+<div id="shop"></div>
+</div>
+<script>
+const $=s=>document.querySelector(s),cv=$('#c'),ctx=cv.getContext('2d'),W=960,H=480;cv.width=W;cv.height=H;
+const COL=24,N=120,X0=380,WORLD=X0+N*COL+260,ROW=10,pitX=70,kilnX=170,towers=[23,47,71,95,119];
+const need=Array.from({length:N},(_,i)=>towers.includes(i)?8:3),fill=Array(N).fill(0),TOTAL=need.reduce((a,b)=>a+b,0);
+const gy=x=>{const a=.6+Math.min(x,3400)/3600;return 330-a*(34*Math.sin(x*.0042)+24*Math.sin(x*.0113+1.3)+14*Math.sin(x*.027))};
+const TIER=[{n:'晾晒架',t:2.6,e:2,v:1,col:['#b08a5e','#a07a50']},{n:'研磨坊',t:1.8,e:3,v:2,col:['#9b8d76','#aa9c84']},{n:'砖窑',t:1.2,e:4,v:4,col:['#6f7f86','#7d8d94']}],colt=Array(N).fill(0);
+const S={E:0,B:0,D:0,BP:0,tier:0,pts:0,placed:0,time:0,done:0,ct:0,ch:0,over:0,lv:{dig:0,kiln:1,carry:0,mason:0,bag:0,cart:0,shovel:0,belt:0,bspd:0,scaf:0}};
+const P={x:120,dir:1,carry:0,ph:0},cam={x:0},keys={L:0,R:0,A:0},carriers=[],PT=[],big=[0,0,0,0,0];
+let T=0,GS=1,frontCol=0,frontX=X0-18,kacc=0,macc=0,hand=0,digT=0,camTx=0,acting=0,lastPl=0;
+const cap=()=>5+3*S.lv.bag,spd=()=>1+.2*S.lv.cart,dm=()=>1+.4*S.lv.shovel,sm=()=>1+.25*S.lv.scaf,beltEnd=()=>360+S.lv.belt*8*COL,srcX=()=>S.lv.belt?beltEnd():kilnX;
+let racc=0;function beltStep(dt){if(!S.lv.belt||frontCol<0)return;const d=beltEnd()>=frontX-30;racc+=1.2*(1+.5*S.lv.bspd)*dt;while(racc>=1&&S.B>=1){racc--;S.B--;d?S.D++:S.BP++}if(S.B<1)racc=Math.min(racc,1);if(d&&S.BP>=1){S.D+=S.BP;S.BP=0}}
+const slopeF=x=>Math.max(.45,1-Math.abs((gy(x-8)-gy(x+8))/16)*.9);
+const onWall=x=>{const i=Math.floor((x-X0)/COL);return i>=0&&(frontCol<0?i<N:i<frontCol)};
+const yOf=x=>gy(x)-(onWall(x)?30:0),mv=x=>onWall(x)?1.4:slopeF(x);
+function updateFront(){frontCol=fill.findIndex((f,i)=>f<need[i]);frontX=frontCol<0?X0+N*COL:X0+frontCol*COL-18}
+/* ---------- audio (all synthesized) ---------- */
+let AC,M,NB,muted=0;
+function audio(){if(AC){AC.state==='suspended'&&AC.resume();return}try{AC=new(window.AudioContext||window.webkitAudioContext)();M=AC.createGain();M.gain.value=muted?0:.6;M.connect(AC.destination);
+NB=AC.createBuffer(1,AC.sampleRate,AC.sampleRate);const d=NB.getChannelData(0);for(let i=0;i<d.length;i++)d[i]=Math.random()*2-1;
+const w=AC.createBufferSource();w.buffer=NB;w.loop=true;const f=AC.createBiquadFilter();f.type='bandpass';f.frequency.value=380;f.Q.value=.6;const g=AC.createGain();g.gain.value=.05;w.connect(f);f.connect(g);g.connect(M);w.start();
+const l=AC.createOscillator(),lg=AC.createGain();l.frequency.value=.15;lg.gain.value=.03;l.connect(lg);lg.connect(g.gain);l.start()}catch(e){AC=null}}
+const tone=(f,d,t='sine',v=.2,to,at=0)=>{if(!AC)return;const n=AC.currentTime+at,o=AC.createOscillator(),g=AC.createGain();o.type=t;o.frequency.setValueAtTime(f,n);if(to)o.frequency.exponentialRampToValueAtTime(to,n+d);g.gain.setValueAtTime(v,n);g.gain.exponentialRampToValueAtTime(.001,n+d);o.connect(g);g.connect(M);o.start(n);o.stop(n+d+.05)};
+const nz=(d,fr,v=.2,t='lowpass')=>{if(!AC)return;const s=AC.createBufferSource();s.buffer=NB;const f=AC.createBiquadFilter();f.type=t;f.frequency.value=fr;const g=AC.createGain(),n=AC.currentTime;g.gain.setValueAtTime(v,n);g.gain.exponentialRampToValueAtTime(.001,n+d);s.connect(f);f.connect(g);g.connect(M);s.start(n,Math.random()*.5,d)};
+const sfx={dig:()=>nz(.14,700,.35),pick:()=>tone(520,.06,'square',.05),drop:()=>nz(.1,900,.2),
+place:()=>{const t=performance.now();if(t-lastPl<70)return;lastPl=t;tone(200,.1,'triangle',.25,80);nz(.04,3000,.12,'highpass')},
+buy:()=>{tone(660,.14,'triangle',.2);tone(990,.2,'triangle',.18,0,.09)},
+gong:()=>[110,165,277].forEach((f,i)=>tone(f,2.2-i*.4,'sine',.3-i*.07)),
+horn:()=>{tone(130,1.1,'sawtooth',.12,196);tone(196,1.1,'square',.05)}};
+/* ---------- particles / toast ---------- */
+const emit=(x,y,vx,vy,l,r,c,g=0)=>{if(PT.length<400)PT.push({x,y,vx,vy,l,m:l,r,c,g})};
+const dust=(x,y)=>{for(let i=0;i<4;i++)emit(x,y,(Math.random()-.5)*60,-Math.random()*50,.5,2+Math.random()*2,'#b59a6d',160)};
+let tt;function toast(s){const e=$('#toast');e.textContent=s;e.classList.add('on');clearTimeout(tt);tt=setTimeout(()=>e.classList.remove('on'),3200)}
+/* ---------- game logic ---------- */
+function place(){if(S.D<1||frontCol<0)return false;const i=frontCol;S.D--;fill[i]++;colt[i]=S.tier;S.pts+=TIER[S.tier].v;S.placed++;if(S.placed===30||S.placed===130)toast('商店解锁了新工艺');sfx.place();dust(X0+i*COL+12,gy(X0+i*COL+12)-fill[i]*ROW);
+if(fill[i]>=need[i]){const ti=towers.indexOf(i);if(ti>=0){S.pts+=15;sfx.gong();toast('第 '+(ti+1)+' 座烽火台点燃！奖励 15 工分')}
+if(i===N-1){S.done=1;S.ct=.6}}updateFront();return true}
+function update(dt){
+T+=dt;if(!S.done)S.time+=dt;
+const m=(keys.R?1:0)-(keys.L?1:0);
+if(m&&!S.done){P.dir=m;P.x=Math.max(20,Math.min(WORLD-40,P.x+m*140*spd()*mv(P.x)*dt));P.ph+=dt}
+acting=0;
+if(keys.A&&!S.done){
+ if(Math.abs(P.x-pitX)<70){acting=1;S.E=Math.min(200,S.E+3.5*dm()*dt);digT-=dt;if(digT<=0){digT=.2;sfx.dig();dust(pitX+Math.random()*20-10,gy(pitX)-4)}}
+ else if(frontCol>=0&&Math.abs(P.x-frontX)<80){acting=1;hand+=3*sm()*dt;while(hand>=1){hand--;if(!place()){hand=0;break}}}}
+if(!S.done){
+ if(Math.abs(P.x-kilnX)<90&&P.carry<cap()&&S.B>=1){const t=Math.min(cap()-P.carry,Math.floor(S.B));P.carry+=t;S.B-=t;sfx.pick()}
+ if(S.lv.belt&&Math.abs(P.x-beltEnd())<70&&P.carry<cap()&&S.BP>=1){const t=Math.min(cap()-P.carry,Math.floor(S.BP));P.carry+=t;S.BP-=t;sfx.pick()}
+ if(frontCol>=0&&P.carry>0&&Math.abs(P.x-frontX)<80){S.D+=P.carry;P.carry=0;sfx.drop()}}
+S.E=Math.min(200,S.E+S.lv.dig*.9*dm()*dt);
+if(S.B<60){const tr=TIER[S.tier];kacc+=S.lv.kiln*dt/tr.t;while(kacc>=1){if(S.E>=tr.e){S.E-=tr.e;S.B++;kacc--}else{kacc=1;break}}}else kacc=Math.min(kacc,1);
+beltStep(dt);if(S.lv.mason&&frontCol>=0){macc+=S.lv.mason*sm()*dt/1.6;while(macc>=1){macc--;if(!place()){macc=Math.min(macc,1);break}}}
+if(frontCol>=0)for(const c of carriers){const tx=c.st?frontX:srcX(),d=tx-c.x;
+ if(Math.abs(d)>5){c.x+=Math.sign(d)*Math.min(Math.abs(d),95*spd()*mv(c.x)*dt);c.dir=Math.sign(d);c.ph+=dt}
+ else if(c.st===0){const pl=S.lv.belt?'BP':'B';if(S[pl]>=1){const t=Math.min(cap(),Math.floor(S[pl]));c.c=t;S[pl]-=t;c.st=1}}
+ else{S.D+=c.c;c.c=0;c.st=0}}
+for(let k=0;k<Math.min(S.lv.kiln,6);k++)if(S.tier===2&&S.E>=4&&Math.random()<dt*3)emit(kilnX+k*30+7,gy(kilnX+k*30)-24,4,-25,1.8,3,'#8b8478',-4);
+towers.forEach((ci,ti)=>{if(fill[ci]>=need[ci]){const cx=X0+ci*COL+COL/2,y=gy(cx)-need[ci]*ROW-14,b=big[ti];
+ if(Math.random()<dt*(b?120:30))emit(cx+(Math.random()-.5)*(b?10:6),y,(Math.random()-.5)*(b?20:10),-(b?90:40)-Math.random()*40,b?1.4:.7,b?4:3,Math.random()<.5?'#f08a24':'#ffd04a',-20);
+ if(b&&Math.random()<dt*30)emit(cx,y-10,6,-60,2.4,5,'#4a4540',-6)}});
+for(let i=PT.length-1;i>=0;i--){const p=PT[i];p.l-=dt;p.x+=p.vx*dt;p.y+=p.vy*dt;p.vy+=p.g*dt;if(p.l<=0)PT.splice(i,1)}
+if(S.done){S.ct-=dt;if(S.ct<=0){if(S.ch<5){const ti=4-S.ch;big[ti]=1;sfx.horn();camTx=X0+towers[ti]*COL-W/2;S.ch++;S.ct=S.ch>=5?1.8:.9}
+ else if(!S.over){S.over=1;const s=Math.floor(S.time);$('#winS').textContent='用时 '+Math.floor(s/60)+' 分 '+s%60+' 秒，共砌砖 '+S.placed+' 块';$('#win').style.display='flex'}}}
+const ct=S.ch>0?camTx:P.x-W/2;cam.x+=(Math.max(0,Math.min(WORLD-W,ct))-cam.x)*Math.min(1,dt*4)}
+/* ---------- drawing ---------- */
+function man(x,y,col,ph,carry,dir,swing,hat='#c9a24a'){const b=Math.sin(ph*10)*2.5;
+ctx.fillStyle='#3b2f23';ctx.fillRect(x-4,y-5,3,5+b*.4);ctx.fillRect(x+1,y-5,3,5-b*.4);
+ctx.fillStyle=col;ctx.fillRect(x-4,y-16,8,11);
+if(carry){ctx.fillStyle='#8c6d4f';ctx.fillRect(x-dir*8-3,y-18,6,Math.min(carry,8)*2)}
+ctx.fillStyle='#e2b58a';ctx.beginPath();ctx.arc(x,y-20,4,0,7);ctx.fill();
+ctx.fillStyle=hat;ctx.beginPath();ctx.moveTo(x-8,y-21);ctx.lineTo(x,y-30);ctx.lineTo(x+8,y-21);ctx.fill();
+if(swing){ctx.strokeStyle='#5a3d22';ctx.lineWidth=2;ctx.beginPath();ctx.moveTo(x+dir*3,y-12);ctx.lineTo(x+dir*10,y-8+Math.sin(swing*14)*6);ctx.stroke()}}
+function prodDraw(x,y,i){if(S.tier===0){ctx.fillStyle='#6b4a2b';ctx.fillRect(x-12,y-18,3,18);ctx.fillRect(x+9,y-18,3,18);ctx.fillRect(x-12,y-18,24,2);ctx.fillRect(x-12,y-9,24,2);ctx.fillStyle='#b8936a';[[-8,-15],[1,-15],[-8,-6],[1,-6]].forEach(([a,b])=>ctx.fillRect(x+a,y+b,6,5))}
+else{const w=S.E>=3?T:0;ctx.fillStyle='#8a8478';ctx.beginPath();ctx.ellipse(x,y-4,13,5,0,0,7);ctx.fill();ctx.fillStyle='#6f6a60';ctx.fillRect(x-1,y-20,3,16);ctx.fillStyle='#4a3a2c';ctx.fillRect(x+Math.cos(w*3+i)*10-2,y-9,5,5)}}
+function beltDraw(cx){if(!S.lv.belt)return;const e=beltEnd(),a=Math.max(360,cx),b=Math.min(e,cx+W);if(b<=a)return;ctx.strokeStyle='#3b2f23';ctx.lineWidth=4;ctx.beginPath();for(let x=a;x<=b;x+=8){const yy=yOf(x)-3;x===a?ctx.moveTo(x,yy):ctx.lineTo(x,yy)}ctx.stroke();ctx.fillStyle='#c9824a';for(let x=Math.ceil(a/16)*16+(T*50)%16;x<b;x+=16)ctx.fillRect(x,yOf(x)-9,6,4);ctx.fillStyle='#a2623f';for(let j=0;j<Math.min(S.BP,12);j++)ctx.fillRect(e+4+(j%4)*7,yOf(e)-4-Math.floor(j/4)*4,6,3)}
+function draw(){const cx=cam.x;
+let g=ctx.createLinearGradient(0,0,0,H);g.addColorStop(0,'#efe2c2');g.addColorStop(1,'#d9c394');ctx.fillStyle=g;ctx.fillRect(0,0,W,H);
+ctx.fillStyle='rgba(184,55,43,.8)';ctx.beginPath();ctx.arc(760,90,36,0,7);ctx.fill();
+[[.12,'rgba(120,110,95,.28)',230,70,.005],[.3,'rgba(90,82,70,.4)',290,80,.008]].forEach(([p,c,b,a,f])=>{ctx.fillStyle=c;ctx.beginPath();ctx.moveTo(0,H);for(let x=0;x<=W;x+=10){const wx=x+cx*p;ctx.lineTo(x,b-a*Math.abs(Math.sin(wx*f))-a*.4*Math.sin(wx*f*2.7))}ctx.lineTo(W,H);ctx.fill()});
+ctx.beginPath();ctx.moveTo(0,H);for(let x=0;x<=W;x+=8)ctx.lineTo(x,gy(x+cx));ctx.lineTo(W,H);ctx.closePath();
+g=ctx.createLinearGradient(0,200,0,H);g.addColorStop(0,'#a58a5c');g.addColorStop(1,'#6e5638');ctx.fillStyle=g;ctx.fill();
+ctx.save();ctx.translate(-Math.round(cx),0);
+const i0=Math.max(0,Math.floor((cx-X0)/COL)-2),i1=Math.min(N-1,Math.ceil((cx+W-X0)/COL)+1);
+for(let i=i0;i<=i1;i++){const x=X0+i*COL,m=x+COL/2,gg=gy(m),tw=towers.includes(i),n=need[i],l=tw?x-5:x,w=tw?COL+10:COL;
+ if(fill[i]<n){ctx.setLineDash([3,3]);ctx.strokeStyle='rgba(60,45,30,.3)';ctx.strokeRect(x+.5,gg-n*ROW,COL-1,n*ROW);ctx.setLineDash([])}
+ if(fill[i]>0){ctx.fillStyle='#6b5d48';ctx.fillRect(l,gg,w,12);
+  for(let r=0;r<fill[i];r++){const y=gg-(r+1)*ROW;ctx.fillStyle=tw?(r%2?'#8f4d3b':'#9d5a46'):TIER[colt[i]].col[r%2];ctx.fillRect(l,y,w,ROW);ctx.fillStyle='rgba(40,30,20,.45)';ctx.fillRect(l,y,w,1);ctx.fillRect(l+(r%2?7:15),y,1,ROW)}
+  if(fill[i]>=n){const top=gg-n*ROW;if(tw){ctx.fillStyle='#7a3f30';for(let k=0;k<3;k++)ctx.fillRect(l+k*12,top-6,7,6);ctx.fillStyle='#4a3a2c';ctx.fillRect(m-6,top-9,12,3)}
+   else{ctx.fillStyle='#8f816b';ctx.fillRect(x,top-4,8,4);ctx.fillRect(x+14,top-4,8,4)}}}}
+/* base */
+let y=gy(pitX);ctx.fillStyle='#4a3825';ctx.beginPath();ctx.ellipse(pitX,y,26,6,0,0,7);ctx.fill();
+ctx.fillStyle='#9a7a4e';ctx.beginPath();ctx.arc(pitX+36,y+2,6+Math.min(S.E,100)*.1,Math.PI,0);ctx.fill();
+const working=S.E>=2;
+for(let i=0;i<Math.min(S.lv.kiln,6);i++){const x=kilnX+i*30;y=gy(x);if(S.tier<2){prodDraw(x,y,i);continue}ctx.fillStyle='#7b4a36';ctx.beginPath();ctx.arc(x,y,13,Math.PI,0);ctx.fill();ctx.fillStyle='#5b3a2b';ctx.fillRect(x+4,y-24,6,12);ctx.fillStyle=working?'#f4a431':'#2a1d14';ctx.fillRect(x-4,y-8,8,8)}
+y=gy(kilnX-38);ctx.fillStyle='#a2623f';for(let j=0;j<Math.min(S.B,24);j++)ctx.fillRect(kilnX-52+(j%6)*7,y-4-Math.floor(j/6)*4,6,3);
+ctx.fillStyle='#2b2622';ctx.font='12px serif';ctx.fillText('土坑',pitX-12,gy(pitX)+22);ctx.fillText(TIER[S.tier].n,kilnX-14,gy(kilnX)+22);
+beltDraw(cx);if(frontCol>=0){y=gy(frontX);ctx.fillStyle='#2b2622';ctx.fillText('前线',frontX-12,y+22);ctx.fillStyle='#a2623f';for(let j=0;j<Math.min(S.D,20);j++)ctx.fillRect(frontX-14+(j%5)*7,y-4-Math.floor(j/5)*4,6,3)}
+for(let i=0;i<Math.min(S.lv.dig,6);i++)man(pitX-24+i*9,gy(pitX-24+i*9),'#7a6a3c',T+i,0,1,T+i*.7);
+if(frontCol>=0)for(let i=0;i<Math.min(S.lv.mason,5);i++){const x=frontX-26-i*11;man(x,yOf(x),'#3f5d7a',T+i,0,1,T+i*.5,'#b9a36a')}
+for(const c of carriers)man(c.x,yOf(c.x),'#4c6b5a',c.ph,c.c,c.dir||1,0);
+man(P.x,yOf(P.x),'#b8372b',P.ph,P.carry,P.dir,acting?T:0,'#d8b45a');
+ctx.fillStyle='#2b2622';ctx.font='bold 13px serif';ctx.fillText(P.carry+'/'+cap(),P.x-12,yOf(P.x)-36);
+for(const p of PT){ctx.globalAlpha=Math.max(0,p.l/p.m);ctx.fillStyle=p.c;ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,7);ctx.fill()}ctx.globalAlpha=1;
+ctx.restore()}
+/* ---------- UI ---------- */
+const U=[
+{k:'dig',n:'挖土工',d:'雇人：每人每秒自动挖土 0.9',c:6,g:1.3},
+{k:'shovel',n:'铁锹',d:'你和挖土工挖土速度 +40%',c:14,g:1.7,max:5},
+{k:'kiln',n:'制坯台',d:'自动制坯，速度随工艺提升',c:12,g:1.38},
+{k:'t1',n:'研磨工艺',d:'土先研磨再制坯，砖更精：每块 2 工分',c:45,tier:1,req:30},
+{k:'t2',n:'烧制工艺',d:'升级为窑烧青砖：每块 4 工分',c:220,tier:2,req:130},
+{k:'belt',n:'传送带',d:'流水线：向前线延长 8 列，自动运砖',c:10,g:1.2,max:15},
+{k:'bspd',n:'传送带加速',d:'传送带运力 +50%',c:30,g:1.6,max:5,need:'belt'},
+{k:'carry',n:'民夫',d:'雇人：在窑口或带尾与前线间运砖',c:10,g:1.3},
+{k:'mason',n:'泥瓦匠',d:'雇人：在前线自动砌砖',c:18,g:1.4},
+{k:'scaf',n:'脚手架',d:'你和泥瓦匠砌墙速度 +25%',c:40,g:1.6,max:5},
+{k:'bag',n:'背篓',d:'你和民夫每次多背 3 块',c:14,g:1.5,max:6},
+{k:'cart',n:'独轮车',d:'你和民夫移动速度 +20%',c:20,g:1.6,max:5}];
+const U0=[{k:'dig',n:'挖土工',d:'每人每秒自动挖土 0.9',c:6,g:1.3},{k:'kiln',n:'砖窑',d:'每座每 1.6 秒烧 1 块砖（耗土 2）',c:12,g:1.38},{k:'carry',n:'民夫',d:'自动把砖从窑口运到前线',c:10,g:1.3},{k:'mason',n:'泥瓦匠',d:'在前线自动砌砖',c:18,g:1.4},{k:'bag',n:'背篓',d:'你和民夫每次多背 3 块',c:14,g:1.5,max:6},{k:'cart',n:'独轮车',d:'你和民夫移动速度 +20%',c:20,g:1.6,max:5}];
+const lvOf=u=>u.tier?(S.tier>=u.tier?1:0):S.lv[u.k],lock=u=>u.tier&&S.tier<u.tier-1?'需先完成上一级工艺':u.req&&S.placed<u.req?'砌砖满 '+u.req+' 块解锁':u.need&&!S.lv[u.need]?'需先铺传送带':'',cost=u=>u.tier?u.c:Math.round(u.c*Math.pow(u.g,S.lv[u.k]-(u.k==='kiln'?1:0)));
+function buy(u){const c=cost(u);if(lock(u)||lvOf(u)>=(u.tier?1:(u.max||1e9))||S.pts<c)return;S.pts-=c;if(u.tier){S.tier=u.tier;sfx.gong();toast('工艺升级：'+TIER[S.tier].n+'，每块砖 '+TIER[S.tier].v+' 工分')}else{S.lv[u.k]++;sfx.buy()}if(u.k==='carry')carriers.push({x:kilnX,st:0,c:0,ph:Math.random()*5,dir:1})}
+U.forEach(u=>{const b=document.createElement('button');b.innerHTML='<b></b><small>'+u.d+'</small><em></em>';b.onclick=()=>{audio();buy(u);b.blur()};$('#shop').appendChild(b);u.el=b});
+function ui(){U.forEach(u=>{const l=lvOf(u),mx=l>=(u.tier?1:(u.max||1e9)),c=cost(u),lk=lock(u);u.el.children[0].textContent=u.n+(u.tier?'':' Lv.'+l);u.el.children[2].textContent=mx?'已完成':lk||'工分 '+c;u.el.disabled=mx||!!lk||S.pts<c});
+$('#hQ').textContent=TIER[S.tier].n+'（'+TIER[S.tier].v+' 分/块）';$('#hE').textContent=Math.floor(S.E);$('#hB').textContent=Math.floor(S.B);$('#hD').textContent=S.D;$('#hC').textContent=P.carry+'/'+cap();$('#hP').textContent=S.pts;
+$('#hT').textContent=towers.filter(i=>fill[i]>=need[i]).length+'/5';const s=Math.floor(S.time);$('#hM').textContent=Math.floor(s/60)+':'+String(s%60).padStart(2,'0');$('#barI').style.width=(S.placed/TOTAL*100)+'%'}
+const kmap={ArrowLeft:'L',a:'L',A:'L',ArrowRight:'R',d:'R',D:'R',' ':'A',e:'A',E:'A'};
+addEventListener('keydown',e=>{const k=kmap[e.key];if(k){e.preventDefault();keys[k]=1;audio()}});
+addEventListener('keyup',e=>{const k=kmap[e.key];if(k){e.preventDefault();keys[k]=0}});
+document.querySelectorAll('#ctrl button').forEach(b=>{const k=b.dataset.k;b.addEventListener('pointerdown',e=>{e.preventDefault();keys[k]=1;audio()});['pointerup','pointerleave','pointercancel'].forEach(n=>b.addEventListener(n,()=>keys[k]=0))});
+$('#mute').onclick=function(){audio();muted=!muted;if(M)M.gain.value=muted?0:.6;this.textContent='音效：'+(muted?'关':'开');this.blur()};
+$('#spd').onclick=function(){GS=GS===1?3:1;this.textContent='速度 ×'+GS;this.blur()};
+$('#again').onclick=()=>location.reload();
+updateFront();toast('按住空格在土坑挖土，晾晒架会把泥坯晒干');
+let last=performance.now(),uiT=0;
+(function loop(now){const dt=Math.min(.05,(now-last)/1000);last=now;for(let i=0;i<GS;i++)update(dt);draw();uiT-=dt;if(uiT<=0){uiT=.12;ui()}requestAnimationFrame(loop)})(last);
+</script></body></html>
