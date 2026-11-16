@@ -1,0 +1,32 @@
+{
+  "name": "incremental-game",
+  "version": "1.0.0",
+  "description": "以修建长城为主题的建造与自动化游戏。",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "preview": "vite preview --host 127.0.0.1",
+    "test": "node --test tests/sim.test.js",
+    "test:browser": "playwright test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DaBenZhong33/Incremental-game.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "bugs": {
+    "url": "https://github.com/DaBenZhong33/Incremental-game/issues"
+  },
+  "homepage": "https://github.com/DaBenZhong33/Incremental-game#readme",
+  "dependencies": {
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.65.1",
+    "vite": "^8.3.8"
+  }
+}
